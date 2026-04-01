@@ -29,3 +29,6 @@ logging:
     root: INFO
     org.springframework: INFO
     com.cognizant.Ticket_service: DEBUG
+security:
+  jwt:
+    secret: change-this-to-a-long-secret-key-with-at-least-64-characters-1234567890
