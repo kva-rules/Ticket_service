@@ -21,7 +21,9 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -29,6 +31,14 @@ import java.util.stream.Collectors;
 public class TicketServiceImpl implements TicketService {
 
     private static final String EVENT_TOPIC = "ticket-events";
+
+    private static final Map<Status, Set<Status>> VALID_STATUS_TRANSITIONS = Map.of(
+            Status.OPEN, Set.of(Status.IN_PROGRESS, Status.RESOLVED, Status.CLOSED),
+            Status.IN_PROGRESS, Set.of(Status.RESOLVED, Status.CLOSED, Status.REOPENED),
+            Status.RESOLVED, Set.of(Status.CLOSED, Status.REOPENED),
+            Status.CLOSED, Set.of(Status.REOPENED),
+            Status.REOPENED, Set.of(Status.IN_PROGRESS, Status.RESOLVED, Status.CLOSED)
+    );
 
     private final TicketRepository ticketRepository;
     private final CategoryRepository categoryRepository;
@@ -149,8 +159,22 @@ public class TicketServiceImpl implements TicketService {
         }
         Ticket ticket = findExistingTicket(ticketId);
         String normalizedStatus = normalizeEnumValue(status, Status.class);
+        Status currentStatus = Status.valueOf(ticket.getStatus());
+        Status targetStatus = Status.valueOf(normalizedStatus);
+
+        if (currentStatus == targetStatus) {
+            return ticket;
+        }
+
+        if (!VALID_STATUS_TRANSITIONS.getOrDefault(currentStatus, Set.of()).contains(targetStatus)) {
+            throw new ValidationException(String.format(
+                    "Invalid status transition from %s to %s",
+                    currentStatus, targetStatus
+            ));
+        }
+
         ticket.setStatus(normalizedStatus);
-        if (Status.RESOLVED.name().equals(normalizedStatus)) {
+        if (targetStatus == Status.RESOLVED) {
             ticket.setResolvedAt(LocalDateTime.now());
         }
         Ticket saved = ticketRepository.save(ticket);

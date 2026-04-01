@@ -10,4 +10,6 @@ public interface CommentService {
     TicketComment addComment(UUID ticketId, UUID userId, String commentText);
 
     List<TicketComment> getCommentsByTicketId(UUID ticketId);
+
+    List<TicketComment> getAllComments();
 }

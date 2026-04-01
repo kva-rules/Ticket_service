@@ -57,4 +57,9 @@ public class CommentServiceImpl implements CommentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + ticketId));
         return commentRepository.findByTicketId(ticketId);
     }
+
+    @Override
+    public List<TicketComment> getAllComments() {
+        return commentRepository.findAll();
+    }
 }

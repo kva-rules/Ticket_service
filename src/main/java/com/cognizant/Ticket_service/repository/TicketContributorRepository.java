@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface TicketContributorRepository extends JpaRepository<TicketContributor, UUID> {
 
     Optional<TicketContributor> findByTicketIdAndUserId(UUID ticketId, UUID userId);
+
+    void deleteByUserId(UUID userId);
 }
