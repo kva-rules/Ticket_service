@@ -222,6 +222,22 @@ public class TicketServiceImpl implements TicketService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public List<Ticket> searchTickets(String title,
+                                      Long categoryId,
+                                      String difficultyLevel,
+                                      String status,
+                                      String assignedTo) {
+        return ticketRepository.findAll().stream()
+                .filter(ticket -> ticket.getDeleted() == null || !ticket.getDeleted())
+                .filter(ticket -> !StringUtils.hasText(title) || containsIgnoreCase(ticket.getTitle(), title))
+                .filter(ticket -> categoryId == null || categoryId.equals(ticket.getCategoryId()))
+                .filter(ticket -> !StringUtils.hasText(difficultyLevel) || difficultyLevel.equalsIgnoreCase(ticket.getDifficultyLevel()))
+                .filter(ticket -> !StringUtils.hasText(status) || status.equalsIgnoreCase(ticket.getStatus()))
+                .filter(ticket -> !StringUtils.hasText(assignedTo) || containsIgnoreCase(ticket.getAssignedTo(), assignedTo))
+                .collect(Collectors.toList());
+    }
+
     private Ticket findExistingTicket(UUID ticketId) {
         return ticketRepository.findById(ticketId)
                 .filter(ticket -> ticket.getDeleted() == null || !ticket.getDeleted())

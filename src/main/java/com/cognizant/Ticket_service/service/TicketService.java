@@ -28,4 +28,10 @@ public interface TicketService {
     Ticket rateTicket(UUID ticketId, Integer rating, String feedback);
 
     List<Ticket> searchTickets(String query);
+
+    List<Ticket> searchTickets(String title,
+                               Long categoryId,
+                               String difficultyLevel,
+                               String status,
+                               String assignedTo);
 }

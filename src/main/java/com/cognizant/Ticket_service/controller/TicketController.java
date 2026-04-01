@@ -41,6 +41,18 @@ public class TicketController {
         return ResponseEntity.ok(tickets);
     }
 
+    @GetMapping("/search")
+    public ResponseEntity<List<Ticket>> searchTickets(
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false) Long category,
+            @RequestParam(required = false) String difficultyLevel,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String assignedTo
+    ) {
+        List<Ticket> tickets = ticketService.searchTickets(title, category, difficultyLevel, status, assignedTo);
+        return ResponseEntity.ok(tickets);
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<Ticket> updateTicket(
             @PathVariable("id") UUID ticketId,
