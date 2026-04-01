@@ -4,6 +4,7 @@ import com.cognizant.Ticket_service.dto.request.TicketAssignRequestDTO;
 import com.cognizant.Ticket_service.dto.request.TicketRequestDTO;
 import com.cognizant.Ticket_service.dto.request.TicketResolveRequestDTO;
 import com.cognizant.Ticket_service.dto.request.TicketStatusRequestDTO;
+import com.cognizant.Ticket_service.dto.response.TicketStatisticsDTO;
 import com.cognizant.Ticket_service.entity.Ticket;
 import com.cognizant.Ticket_service.service.TicketService;
 import org.springframework.http.HttpStatus;
@@ -51,6 +52,12 @@ public class TicketController {
     ) {
         List<Ticket> tickets = ticketService.searchTickets(title, category, difficultyLevel, status, assignedTo);
         return ResponseEntity.ok(tickets);
+    }
+
+    @GetMapping("/statistics")
+    public ResponseEntity<TicketStatisticsDTO> getStatistics() {
+        TicketStatisticsDTO stats = ticketService.getTicketStatistics();
+        return ResponseEntity.ok(stats);
     }
 
     @PutMapping("/{id}")

@@ -2,6 +2,7 @@ package com.cognizant.Ticket_service.service;
 
 import com.cognizant.Ticket_service.dto.request.TicketRequestDTO;
 import com.cognizant.Ticket_service.dto.response.TicketResponseDTO;
+import com.cognizant.Ticket_service.dto.response.TicketStatisticsDTO;
 import com.cognizant.Ticket_service.entity.Ticket;
 
 import java.util.List;
@@ -34,4 +35,6 @@ public interface TicketService {
                                String difficultyLevel,
                                String status,
                                String assignedTo);
+
+    TicketStatisticsDTO getTicketStatistics();
 }

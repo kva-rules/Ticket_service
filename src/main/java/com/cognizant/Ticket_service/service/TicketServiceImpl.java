@@ -1,6 +1,7 @@
 package com.cognizant.Ticket_service.service;
 
 import com.cognizant.Ticket_service.dto.request.TicketRequestDTO;
+import com.cognizant.Ticket_service.dto.response.TicketStatisticsDTO;
 import com.cognizant.Ticket_service.entity.Category;
 import com.cognizant.Ticket_service.entity.DifficultyLevel;
 import com.cognizant.Ticket_service.entity.Priority;
@@ -236,6 +237,29 @@ public class TicketServiceImpl implements TicketService {
                 .filter(ticket -> !StringUtils.hasText(status) || status.equalsIgnoreCase(ticket.getStatus()))
                 .filter(ticket -> !StringUtils.hasText(assignedTo) || containsIgnoreCase(ticket.getAssignedTo(), assignedTo))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public TicketStatisticsDTO getTicketStatistics() {
+        List<Ticket> tickets = ticketRepository.findAll().stream()
+                .filter(ticket -> ticket.getDeleted() == null || !ticket.getDeleted())
+                .collect(Collectors.toList());
+
+        long totalTickets = tickets.size();
+        long openTickets = tickets.stream()
+                .filter(ticket -> Status.OPEN.name().equalsIgnoreCase(ticket.getStatus()))
+                .count();
+        long resolvedTickets = tickets.stream()
+                .filter(ticket -> Status.RESOLVED.name().equalsIgnoreCase(ticket.getStatus()))
+                .count();
+
+        double averageRating = ratingRepository.findAll().stream()
+                .mapToInt(rating -> rating.getRating() == null ? 0 : rating.getRating())
+                .filter(value -> value > 0)
+                .average()
+                .orElse(0.0);
+
+        return new TicketStatisticsDTO(totalTickets, openTickets, resolvedTickets, averageRating);
     }
 
     private Ticket findExistingTicket(UUID ticketId) {
