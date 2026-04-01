@@ -13,6 +13,8 @@ public interface TicketContributorRepository extends JpaRepository<TicketContrib
 
     Optional<TicketContributor> findByTicketIdAndUserId(UUID ticketId, UUID userId);
 
+    List<TicketContributor> findByTicketId(UUID ticketId);
+
     List<TicketContributor> findByUserId(UUID userId);
 
     void deleteByUserId(UUID userId);

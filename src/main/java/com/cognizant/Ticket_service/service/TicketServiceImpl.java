@@ -80,7 +80,7 @@ public class TicketServiceImpl implements TicketService {
         ticket.setDeleted(false);
 
         Ticket saved = ticketRepository.save(ticket);
-        publishEvent("TICKET_CREATED", saved.getTicketId(), "Ticket created");
+        publishEvent("ticket.created", saved, "Ticket created");
         return saved;
     }
 
@@ -110,7 +110,7 @@ public class TicketServiceImpl implements TicketService {
         }
 
         Ticket updated = ticketRepository.save(ticket);
-        publishEvent("TICKET_UPDATED", updated.getTicketId(), "Ticket updated");
+        publishEvent("ticket.updated", updated, "Ticket updated");
         return updated;
     }
 
@@ -120,7 +120,6 @@ public class TicketServiceImpl implements TicketService {
         Ticket ticket = findExistingTicket(ticketId);
         ticket.setDeleted(true);
         ticketRepository.save(ticket);
-        publishEvent("TICKET_DELETED", ticketId, "Ticket deleted");
     }
 
     @Override
@@ -148,7 +147,7 @@ public class TicketServiceImpl implements TicketService {
         }
         Ticket saved = ticketRepository.save(ticket);
         createContributorIfMissing(saved, assignedTo.trim());
-        publishEvent("TICKET_ASSIGNED", saved.getTicketId(), "Assigned to " + assignedTo);
+        publishEvent("ticket.assigned", saved, "Assigned to " + assignedTo);
         return saved;
     }
 
@@ -179,7 +178,11 @@ public class TicketServiceImpl implements TicketService {
             ticket.setResolvedAt(LocalDateTime.now());
         }
         Ticket saved = ticketRepository.save(ticket);
-        publishEvent("TICKET_STATUS_UPDATED", saved.getTicketId(), "Status updated to " + normalizedStatus);
+        if (Status.CLOSED.name().equals(normalizedStatus)) {
+            publishEvent("ticket.closed", saved, "Ticket closed");
+        } else {
+            publishEvent("ticket.updated", saved, "Status updated to " + normalizedStatus);
+        }
         return saved;
     }
 
@@ -190,7 +193,7 @@ public class TicketServiceImpl implements TicketService {
         ticket.setStatus(Status.RESOLVED.name());
         ticket.setResolvedAt(LocalDateTime.now());
         Ticket saved = ticketRepository.save(ticket);
-        publishEvent("TICKET_RESOLVED", saved.getTicketId(), "Ticket resolved");
+        publishEvent("ticket.resolved", saved, "Ticket resolved");
         return saved;
     }
 
@@ -207,7 +210,7 @@ public class TicketServiceImpl implements TicketService {
         ticketRating.setFeedback(StringUtils.hasText(feedback) ? feedback.trim() : null);
         ticketRating.setCreatedAt(LocalDateTime.now());
         ratingRepository.save(ticketRating);
-        publishEvent("TICKET_RATED", ticketId, "Rating submitted");
+        publishEvent("ticket.rated", ticket, "Rating submitted");
         return ticket;
     }
 
@@ -346,13 +349,45 @@ public class TicketServiceImpl implements TicketService {
         }
     }
 
-    private void publishEvent(String eventType, UUID ticketId, String details) {
-        if (ticketId == null) {
+    private void publishEvent(String eventType, Ticket ticket, String details) {
+        if (ticket == null || ticket.getTicketId() == null) {
             return;
         }
-        String safeDetails = details == null ? "" : details.replace("\"", "\\\"");
-        String payload = String.format("{\"eventType\":\"%s\",\"ticketId\":\"%s\",\"details\":\"%s\"}",
-                eventType, ticketId, safeDetails);
+
+        String categoryName = "";
+        if (ticket.getCategoryId() != null) {
+            categoryName = categoryRepository.findById(ticket.getCategoryId())
+                    .map(Category::getCategoryName)
+                    .orElse("");
+        }
+
+        List<String> contributors = contributorRepository.findByTicketId(ticket.getTicketId()).stream()
+                .map(contributor -> contributor.getUserId() == null ? "" : contributor.getUserId().toString())
+                .collect(Collectors.toList());
+
+        String safeDetails = escapeJson(details);
+        String safeCategory = escapeJson(categoryName);
+        String safeDifficulty = escapeJson(ticket.getDifficultyLevel());
+        String contributorArray = contributors.stream()
+                .map(id -> String.format("\"%s\"", escapeJson(id)))
+                .collect(Collectors.joining(","));
+
+        String payload = String.format(
+                "{\"eventType\":\"%s\",\"ticketId\":\"%s\",\"category\":\"%s\",\"difficultyLevel\":\"%s\",\"contributors\":[%s],\"details\":\"%s\"}",
+                eventType,
+                ticket.getTicketId(),
+                safeCategory,
+                safeDifficulty,
+                contributorArray,
+                safeDetails
+        );
         kafkaTemplate.send(EVENT_TOPIC, payload);
+    }
+
+    private String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
 }
