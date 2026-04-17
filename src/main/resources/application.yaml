@@ -1,34 +1,40 @@
 server:
-  port: 8082
+  port: 8083
+
 spring:
   application:
-    name: Ticket Service
+    name: ticket-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/ticket_service_db
+    url: jdbc:postgresql://postgres-ticket:5432/ticket_db
     username: postgres
-    password: root
+    password: postgres
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: kafka:9092
     consumer:
       group-id: ticket-service-group
+      auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+jwt:
+  secret: myVerySecretKeyForJWTThatIsLongEnoughForHS512Signature
+
 logging:
   level:
     root: INFO
     org.springframework: INFO
     com.cognizant.Ticket_service: DEBUG
-security:
-  jwt:
-    secret: change-this-to-a-long-secret-key-with-at-least-64-characters-1234567890

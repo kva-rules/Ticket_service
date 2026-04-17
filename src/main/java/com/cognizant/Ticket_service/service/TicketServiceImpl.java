@@ -14,6 +14,7 @@ import com.cognizant.Ticket_service.repository.CategoryRepository;
 import com.cognizant.Ticket_service.repository.RatingRepository;
 import com.cognizant.Ticket_service.repository.TicketContributorRepository;
 import com.cognizant.Ticket_service.repository.TicketRepository;
+import com.library.common.event.TicketCreatedEvent;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,7 @@ import java.util.stream.Collectors;
 public class TicketServiceImpl implements TicketService {
 
     private static final String EVENT_TOPIC = "ticket-events";
+    private static final String TICKET_CREATED_TOPIC = "ticket.created";
 
     private static final Map<Status, Set<Status>> VALID_STATUS_TRANSITIONS = Map.of(
             Status.OPEN, Set.of(Status.IN_PROGRESS, Status.RESOLVED, Status.CLOSED),
@@ -45,14 +47,14 @@ public class TicketServiceImpl implements TicketService {
     private final CategoryRepository categoryRepository;
     private final RatingRepository ratingRepository;
     private final TicketContributorRepository contributorRepository;
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     public TicketServiceImpl(
             TicketRepository ticketRepository,
             CategoryRepository categoryRepository,
             RatingRepository ratingRepository,
             TicketContributorRepository contributorRepository,
-            KafkaTemplate<String, String> kafkaTemplate
+            KafkaTemplate<String, Object> kafkaTemplate
     ) {
         this.ticketRepository = ticketRepository;
         this.categoryRepository = categoryRepository;
@@ -81,7 +83,39 @@ public class TicketServiceImpl implements TicketService {
 
         Ticket saved = ticketRepository.save(ticket);
         publishEvent("ticket.created", saved, "Ticket created");
+        publishTicketCreatedEvent(saved);
         return saved;
+    }
+
+    private void publishTicketCreatedEvent(Ticket ticket) {
+        try {
+            Long assignedUserId = null;
+            if (ticket.getAssignedTo() != null) {
+                try {
+                    assignedUserId = Long.parseLong(ticket.getAssignedTo());
+                } catch (NumberFormatException e) {
+                    // assignedTo might be a UUID or username, try to parse as UUID hash
+                }
+            }
+            Long creatorUserId = null;
+            if (ticket.getCreatedBy() != null) {
+                try {
+                    creatorUserId = Long.parseLong(ticket.getCreatedBy());
+                } catch (NumberFormatException e) {
+                    // createdBy might be a username
+                }
+            }
+            TicketCreatedEvent event = TicketCreatedEvent.builder()
+                    .ticketId(ticket.getTicketId() != null ? ticket.getTicketId().getMostSignificantBits() : null)
+                    .title(ticket.getTitle())
+                    .assignedUserId(assignedUserId)
+                    .creatorUserId(creatorUserId)
+                    .difficulty(ticket.getDifficultyLevel())
+                    .build();
+            kafkaTemplate.send(TICKET_CREATED_TOPIC, event);
+        } catch (Exception e) {
+            // Log error but don't fail the ticket creation
+        }
     }
 
     @Override
