@@ -1,174 +1,140 @@
 # Ticket Service
 
-Spring Boot microservice for ticket management with RBAC, Kafka integration, PostgreSQL persistence.
+Support-ticket lifecycle microservice. Handles ticket CRUD, threaded comments, engineer assignment, contributor tracking, and post-resolution ratings. Emits `ticket.*` Kafka events so reward-service and notification-service react without tight coupling.
 
-## Prerequisites
+---
 
-- **JDK:** 21 (Maven requires)
-- **PostgreSQL:** 15+ (localhost:5432, DB: `ticket_service_db`, user: `postgres`, pass: `root`)
-- **Kafka:** 3+ (localhost:9092 with Zookeeper)
-- **Maven:** 3.9+ (use `./mvnw` wrapper provided)
-- **IDE:** IntelliJ/VSCode with Lombok, Spring Boot plugins
-- **Optional:** Docker for Postgres/Kafka
+## At a glance
+| | |
+|---|---|
+| **Port** | 8083 |
+| **Database** | postgres-ticket (`ticket_db`) |
+| **Kafka topics (out)** | `ticket.created`, `ticket.assigned`, `ticket.resolved`, `ticket.closed` |
+| **Kafka topics (in)** | none |
+| **Swagger UI (direct)** | http://localhost:8083/swagger-ui.html |
+| **Swagger UI (via gateway)** | http://localhost:8080/swagger-ui.html?urls.primaryName=ticket-service |
+| **OpenAPI JSON** | http://localhost:8083/v3/api-docs |
+| **Java** | 21 (Temurin) |
+| **Spring Boot** | 3.3.5 |
 
-## Local Setup
+---
 
-1. **Clone/Download** project
-2. **Start Services:**
+## What it does
+- **Tickets**: create → assign → resolve → close lifecycle with audit trail
+- **Comments**: threaded discussion under each ticket
+- **Contributors**: multiple engineers can collaborate on one ticket (reward-service uses this to split points)
+- **Ratings**: requester scores the engineer after resolution
+- **Statistics**: aggregate counts per status/engineer for dashboards
+- **Internal lookups** (`/internal/**`): called by reward-service and notification-service to fetch ticket context
 
-   ```bash
-   # Postgres (Docker)
-   docker run -d --name postgres-ticket -e POSTGRES_DB=ticket_service_db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=root -p 5432:5432 postgres:15
+---
 
-   # Kafka (Docker Compose - create docker-compose.yml)
-   docker-compose up kafka zookeeper
-   ```
+## API surface
 
-3. **Configure** `application.yaml` (JWT secret, DB creds if changed)
-4. **Build & Run:**
-   ```bash
-   ./mvnw clean compile test  # Optional tests
-   ./mvnw spring-boot:run     # Port 8082
-   ```
-5. **Access:**
-   - Swagger: http://localhost:8082/swagger-ui.html
-   - Actuator: http://localhost:8082/actuator/health
-6. **Generate JWT:** External auth service with `roles` claim (e.g. ["ENGINEER"])
-7. **Test API** with curl/Postman using Bearer JWT.
+### Tickets (`/api/tickets/**`)
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/tickets` | JWT | Create a new ticket |
+| GET | `/api/tickets` | JWT | List / paginate tickets |
+| GET | `/api/tickets/search` | JWT | Full-text + filter search |
+| GET | `/api/tickets/statistics` | JWT | Aggregate counts per status/engineer |
+| GET | `/api/tickets/{id}` | JWT | Fetch one ticket |
+| PUT | `/api/tickets/{id}` | JWT | Update ticket fields |
+| PUT | `/api/tickets/{id}/assign` | JWT + ENGINEER | Assign an engineer |
+| PUT | `/api/tickets/{id}/status` | JWT | Change status |
+| PUT | `/api/tickets/{id}/resolve` | JWT + ENGINEER | Mark resolved → emits `ticket.resolved` |
+| DELETE | `/api/tickets/{id}` | JWT + ADMIN | Hard-delete (admins only) |
 
-## Architecture
+### Comments (`/api/tickets/{ticketId}/comments`)
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/tickets/{ticketId}/comments` | JWT | Add a comment |
+| GET | `/api/tickets/{ticketId}/comments` | JWT | List comments |
 
-- **Framework:** Spring Boot 4.0.3 (Maven)
-- **Database:** PostgreSQL with JPA/Hibernate, Liquibase migrations
-- **Auth:** JWT (jjwt 0.11), RBAC
-- **Messaging:** Spring Kafka producer (`ticket-events` topic)
-- **Security:** Spring Security @EnableMethodSecurity
-- **Validation:** Bean Validation
-- **Docs:** SpringDoc OpenAPI (Swagger)
-- **DevTools:** Lombok
+### Contributors (`/api/tickets/{ticketId}/contributors`)
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/tickets/{ticketId}/contributors` | JWT | Add a contributor |
+| GET | `/api/tickets/{ticketId}/contributors` | JWT | List contributors |
+| DELETE | `/api/tickets/{ticketId}/contributors/{userId}` | JWT | Remove a contributor |
 
-**Layers:**
+### Ratings (`/api/tickets/{ticketId}/ratings`)
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/api/tickets/{ticketId}/ratings` | JWT | Submit resolution rating |
 
+### Internal (`/internal/**`) — service-to-service
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/internal/tickets/{id}` | Fetch ticket metadata |
+| GET | `/internal/tickets/by-user/{userId}` | All tickets owned/assigned to a user |
+
+Live: **http://localhost:8083/swagger-ui.html**.
+
+---
+
+## Configuration
+| Env var | Yaml key | Default | Purpose |
+|---|---|---|---|
+| `SERVER_PORT` | `server.port` | `8083` | |
+| `SPRING_DATASOURCE_URL` | | `jdbc:postgresql://postgres-ticket:5432/ticket_db` | |
+| `SPRING_DATASOURCE_USERNAME` | | `postgres` | |
+| `SPRING_DATASOURCE_PASSWORD` | | `postgres` | |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | | `kafka:9092` | |
+| `JWT_SECRET` | `jwt.secret` | (shared) | Must match auth-service |
+
+---
+
+## Kafka events produced
+- **`ticket.created`** — on POST, consumed by notification-service
+- **`ticket.assigned`** — on assign endpoint, consumed by notification-service
+- **`ticket.resolved`** — on resolve endpoint, consumed by reward-service (+50 pts) + notification-service
+- **`ticket.closed`** — terminal state
+
+---
+
+## Build & run
+```bash
+./services.sh start ticket-service
 ```
-Controllers → Services → Repositories → PostgreSQL
-                    ↓ (KafkaTemplate)
-                Kafka (`ticket-events`)
-```
-
-## Role Permissions (RBAC)
-
-| Role     | Permissions                                                           |
-| -------- | --------------------------------------------------------------------- |
-| ENGINEER | Create tickets (`POST /api/tickets`), Add comments (`POST /comments`) |
-| MANAGER  | Assign tickets (`POST /api/tickets/{id}/assign`)                      |
-| ADMIN    | Manage categories (CRUD `/api/categories`)                            |
-
-JWT token must include `roles` claim (e.g. `["ENGINEER"]`).
-
-## APIs
-
-### Tickets (`/api/tickets`)
-
-- `POST /` Create (ENGINEER)
-- `GET /{id}` Get by ID
-- `GET /` List all
-- `GET /search` Search
-- `GET /statistics` Stats
-- `PUT /{id}` Update
-- `POST /{id}/assign` Assign (MANAGER)
-- `PUT /status` Update status
-- `PUT /resolve` Resolve
-- `DELETE /{id}` Delete
-
-### Comments (`/comments`)
-
-- `POST /` Add (ENGINEER)
-- `GET /` List all
-
-### Contributors (`/contributors`)
-
-- `POST /` Add
-- `GET /` List
-- `DELETE /{userId}` Remove by user
-
-### Categories (`/api/categories`)
-
-- `POST /` Create (ADMIN)
-- `GET /{id}` Get
-- `GET /` List
-- `PUT /{id}` Update (ADMIN)
-- `DELETE /{id}` Delete (ADMIN)
-
-### Others
-
-- Ratings (`/ratings`)
-- Internal tickets
-
-## Kafka Events
-
-Kafka producer config: `localhost:9092`, group `ticket-service-group`.
-
-Events produced on:
-
-- Ticket create/update/assign/resolve (check `TicketServiceImpl`)
-- Comments added
-- Topics: Inferred from service impl (e.g. `ticket-events`).
-
-Sample payload:
-
-```json
-{ "eventType": "TICKET_CREATED", "ticketId": "uuid", "data": {...} }
+or
+```bash
+export JAVA_HOME=/opt/homebrew/Cellar/openjdk@21/21.0.11
+cd Ticket_service
+mvn -DskipTests -Dmaven.test.skip=true spring-boot:run
 ```
 
-## DB Schema
-
-PostgreSQL `ticket_service_db` (user: postgres, pass: root).
-
-**Key Tables (JPA entities):**
-
-- `ticket`: id (UUID PK), title, description, category_id, priority, difficulty, status, assigned_to
-- `category`: id (Long PK), name, description
-- `ticket_comment`: id, ticket_id, user_id, comment_text
-- `ticket_contributor`: ticket_id, user_id
-- `ticket_assignment`: ticket_id, user_id
-- `ticket_rating`: ticket_id, user_id, rating
-- Enums: DifficultyLevel, Priority, Status, Visibility
-
-Liquibase changelogs in `src/main/resources/db/changelog`.
-
-## Local Setup
-
-1. Start PostgreSQL/Kafka (localhost:5432/9092)
-2. `./mvnw spring-boot:run`
-3. Test: `curl http://localhost:8082/swagger-ui.html`
-
-## CI/CD
-
-**Maven Commands:**
-
-- Build: `./mvnw clean compile`
-- Test: `./mvnw test`
-- Run: `./mvnw spring-boot:run`
-- Package: `./mvnw clean package`
-
-**GitHub Actions (add `.github/workflows/maven.yml`):**
-
-```yaml
-name: CI
-on: [push, pull_request]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4 # JDK 21
-        with: { java-version: "21" }
-      - run: ./mvnw clean compile test
+## Docker
+```bash
+docker build -t ticket-service:latest .
+docker run --rm -p 8083:8083 ticket-service:latest
 ```
 
-**Deploy:** Dockerize + Kubernetes/Docker Compose for prod.
+## Kubernetes
+- Manifest: `k8s/ticket-service.yaml`
+- Service: `ticket-service`
+
+---
 
 ## Troubleshooting
 
-- JWT secret: `application.yaml`
-- Warnings: Unchecked cast in JWT roles (safe).
+**Tickets not triggering reward points**
+Check Kafka: `docker ps | grep kafka`. Then `./services.sh logs reward-service` and confirm the `ticket.resolved` listener is logging consumed messages.
+
+**403 on PUT /api/tickets/{id}**
+Only the assigned engineer, a contributor, or ADMIN can update. Check the JWT's role claim via `jwt.io`.
+
+**"Ticket not found" when the ID is correct**
+Check you're hitting the right service port (gateway `:8080` vs direct `:8083`) and the ticket_db DB is the one you seeded.
+
+---
+
+## Tech stack
+- Java 21 (Temurin)
+- Spring Boot 3.3.5
+- Spring Security + JJWT (gateway-injected header auth)
+- Spring Data JPA + PostgreSQL 16
+- Spring Kafka (producer)
+- springdoc-openapi 2.6.0
+- Lombok 1.18.34, MapStruct 1.6.3
+- `com.kva:common-library` 1.0.0

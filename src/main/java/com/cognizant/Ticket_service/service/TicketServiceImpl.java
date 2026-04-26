@@ -16,6 +16,8 @@ import com.cognizant.Ticket_service.repository.TicketContributorRepository;
 import com.cognizant.Ticket_service.repository.TicketRepository;
 import com.library.common.event.TicketCreatedEvent;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -78,7 +80,7 @@ public class TicketServiceImpl implements TicketService {
         ticket.setPriority(normalizeEnumValue(ticketRequestDTO.getPriority(), Priority.class));
         ticket.setVisibility(normalizeEnumValue(ticketRequestDTO.getVisibility(), com.cognizant.Ticket_service.entity.Visibility.class));
         ticket.setStatus(Status.OPEN.name());
-        ticket.setCreatedBy("system");
+        ticket.setCreatedBy(currentPrincipalName());
         ticket.setDeleted(false);
 
         Ticket saved = ticketRepository.save(ticket);
@@ -343,6 +345,19 @@ public class TicketServiceImpl implements TicketService {
         } catch (IllegalArgumentException ex) {
             throw new ValidationException("Invalid " + enumClass.getSimpleName() + ": " + value);
         }
+    }
+
+    /**
+     * Returns the email of the currently-authenticated principal (set by
+     * {@code JwtAuthenticationFilter} from the JWT's {@code sub} claim), or
+     * {@code "system"} for unauthenticated calls (e.g. internal endpoints).
+     */
+    private String currentPrincipalName() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
+            return "system";
+        }
+        return auth.getName();
     }
 
     private boolean matchesSearch(Ticket ticket, String query) {

@@ -5,7 +5,7 @@ spring:
   application:
     name: ticket-service
   datasource:
-    url: jdbc:postgresql://postgres-ticket:5432/ticket_db
+    url: jdbc:postgresql://localhost:5432/ticket_db
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
@@ -17,8 +17,10 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+  liquibase:
+    enabled: false
   kafka:
-    bootstrap-servers: kafka:9092
+    bootstrap-servers: localhost:9092
     consumer:
       group-id: ticket-service-group
       auto-offset-reset: earliest
@@ -30,6 +32,10 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
+security:
+  jwt:
+    secret: myVerySecretKeyForJWTThatIsLongEnoughForHS512Signature
+
 jwt:
   secret: myVerySecretKeyForJWTThatIsLongEnoughForHS512Signature
 
@@ -38,13 +44,3 @@ logging:
     root: INFO
     org.springframework: INFO
     com.cognizant.Ticket_service: DEBUG
-
-springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    operations-sorter: method
-    tags-sorter: alpha
-    try-it-out-enabled: true
-    display-request-duration: true
