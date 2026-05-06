@@ -68,7 +68,7 @@ public class InternalTicketController {
     })
     public ResponseEntity<List<Ticket>> getTicketsByUser(
             @Parameter(description = "UUID of the user") @PathVariable("userId") UUID userId) {
-        List<Ticket> assignedTickets = ticketRepository.findByAssignedTo(userId.toString());
+        List<Ticket> assignedTickets = ticketRepository.findByAssignedToAndDeletedFalse(userId.toString());
         List<TicketContributor> contributors = contributorRepository.findByUserId(userId);
 
         Set<UUID> ticketIds = new HashSet<>();

@@ -22,6 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -164,10 +167,13 @@ public class TicketServiceImpl implements TicketService {
     }
 
     @Override
-    public List<Ticket> getAllTickets() {
-        return ticketRepository.findAll().stream()
-                .filter(ticket -> ticket.getDeleted() == null || !ticket.getDeleted())
-                .collect(Collectors.toList());
+    public Page<Ticket> getAllTickets(Pageable pageable) {
+        return ticketRepository.findByDeletedFalse(pageable);
+    }
+
+    @Override
+    public Page<Ticket> getMyTickets(String createdBy, Pageable pageable) {
+        return ticketRepository.findByCreatedByAndDeletedFalse(createdBy, pageable);
     }
 
     @Override
@@ -184,7 +190,28 @@ public class TicketServiceImpl implements TicketService {
         Ticket saved = ticketRepository.save(ticket);
         createContributorIfMissing(saved, assignedTo.trim());
         publishEvent("ticket.assigned", saved, "Assigned to " + assignedTo);
+        publishTicketAssignedNotification(saved, assignedTo.trim());
         return saved;
+    }
+
+    private void publishTicketAssignedNotification(Ticket ticket, String assignedToStr) {
+        try {
+            UUID assigneeUuid = parseNullableUuid(assignedToStr);
+            if (assigneeUuid == null) return;
+            // Build a NotificationEvent-compatible payload so the notification service
+            // can deserialize it (default type = NotificationEvent when no type header).
+            Map<String, Object> event = new java.util.LinkedHashMap<>();
+            event.put("eventType", "TICKET_ASSIGNED");
+            event.put("referenceId", ticket.getTicketId());
+            event.put("referenceType", "TICKET");
+            event.put("recipientUserIds", List.of(assigneeUuid));
+            event.put("templateVariables", Map.of(
+                    "message", "A ticket has been assigned to you: " + ticket.getTitle()
+            ));
+            kafkaTemplate.send("ticket.assigned", event);
+        } catch (Exception e) {
+            // Non-critical — don't fail the assignment
+        }
     }
 
     @Override
@@ -235,13 +262,14 @@ public class TicketServiceImpl implements TicketService {
 
     @Override
     @Transactional
-    public Ticket rateTicket(UUID ticketId, Integer rating, String feedback) {
+    public Ticket rateTicket(UUID ticketId, Integer rating, String feedback, UUID ratedBy) {
         Ticket ticket = findExistingTicket(ticketId);
         if (rating == null || rating < 1 || rating > 5) {
             throw new ValidationException("rating must be between 1 and 5");
         }
         com.cognizant.Ticket_service.entity.TicketRating ticketRating = new com.cognizant.Ticket_service.entity.TicketRating();
         ticketRating.setTicketId(ticketId);
+        ticketRating.setRatedBy(ratedBy);
         ticketRating.setRating(rating);
         ticketRating.setFeedback(StringUtils.hasText(feedback) ? feedback.trim() : null);
         ticketRating.setCreatedAt(LocalDateTime.now());
@@ -253,44 +281,28 @@ public class TicketServiceImpl implements TicketService {
     @Override
     public List<Ticket> searchTickets(String query) {
         if (!StringUtils.hasText(query)) {
-            return getAllTickets();
+            return ticketRepository.findByDeletedFalse(Pageable.unpaged()).getContent();
         }
-        String normalizedQuery = query.trim().toLowerCase(Locale.ROOT);
-        return ticketRepository.findAll().stream()
-                .filter(ticket -> ticket.getDeleted() == null || !ticket.getDeleted())
-                .filter(ticket -> matchesSearch(ticket, normalizedQuery))
-                .collect(Collectors.toList());
+        return ticketRepository.searchTickets(query, null, null, null, null, Pageable.unpaged()).getContent();
     }
 
     @Override
-    public List<Ticket> searchTickets(String title,
-                                      Long categoryId,
-                                      String difficultyLevel,
-                                      String status,
-                                      String assignedTo) {
-        return ticketRepository.findAll().stream()
-                .filter(ticket -> ticket.getDeleted() == null || !ticket.getDeleted())
-                .filter(ticket -> !StringUtils.hasText(title) || containsIgnoreCase(ticket.getTitle(), title))
-                .filter(ticket -> categoryId == null || categoryId.equals(ticket.getCategoryId()))
-                .filter(ticket -> !StringUtils.hasText(difficultyLevel) || difficultyLevel.equalsIgnoreCase(ticket.getDifficultyLevel()))
-                .filter(ticket -> !StringUtils.hasText(status) || status.equalsIgnoreCase(ticket.getStatus()))
-                .filter(ticket -> !StringUtils.hasText(assignedTo) || containsIgnoreCase(ticket.getAssignedTo(), assignedTo))
-                .collect(Collectors.toList());
+    public Page<Ticket> searchTickets(String title, Long categoryId, String difficultyLevel,
+                                      String status, String assignedTo, Pageable pageable) {
+        return ticketRepository.searchTickets(
+                StringUtils.hasText(title) ? title : null,
+                categoryId,
+                StringUtils.hasText(difficultyLevel) ? difficultyLevel : null,
+                StringUtils.hasText(status) ? status : null,
+                StringUtils.hasText(assignedTo) ? assignedTo : null,
+                pageable);
     }
 
     @Override
     public TicketStatisticsDTO getTicketStatistics() {
-        List<Ticket> tickets = ticketRepository.findAll().stream()
-                .filter(ticket -> ticket.getDeleted() == null || !ticket.getDeleted())
-                .collect(Collectors.toList());
-
-        long totalTickets = tickets.size();
-        long openTickets = tickets.stream()
-                .filter(ticket -> Status.OPEN.name().equalsIgnoreCase(ticket.getStatus()))
-                .count();
-        long resolvedTickets = tickets.stream()
-                .filter(ticket -> Status.RESOLVED.name().equalsIgnoreCase(ticket.getStatus()))
-                .count();
+        long totalTickets = ticketRepository.findByDeletedFalse(Pageable.unpaged()).getTotalElements();
+        long openTickets = ticketRepository.countByStatusAndDeletedFalse(Status.OPEN.name());
+        long resolvedTickets = ticketRepository.countByStatusAndDeletedFalse(Status.RESOLVED.name());
 
         double averageRating = ratingRepository.findAll().stream()
                 .mapToInt(rating -> rating.getRating() == null ? 0 : rating.getRating())

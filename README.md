@@ -121,6 +121,15 @@ docker run --rm -p 8083:8083 ticket-service:latest
 **Tickets not triggering reward points**
 Check Kafka: `docker ps | grep kafka`. Then `./services.sh logs reward-service` and confirm the `ticket.resolved` listener is logging consumed messages.
 
+**`GET /api/tickets/search?*` returns 500 — `ERROR: function lower(bytea) does not exist` (May 2026 fix)**
+Root cause: The JPQL query used `LOWER(CONCAT('%', :param, '%'))` with nullable Spring Data parameters. PostgreSQL could not infer the bind parameter type when the value was `null` and defaulted to `bytea`; the `lower(bytea)` overload doesn't exist.
+
+Fix applied: `TicketRepository.searchTickets` was rewritten as a native SQL query using `CAST(:param AS text)` for every nullable parameter:
+```sql
+AND (CAST(:title AS text) IS NULL OR LOWER(t.title) LIKE '%' || LOWER(CAST(:title AS text)) || '%')
+```
+A separate `countQuery` attribute was added for pagination support (`nativeQuery = true` requires an explicit count query when using `Pageable`).
+
 **403 on PUT /api/tickets/{id}**
 Only the assigned engineer, a contributor, or ADMIN can update. Check the JWT's role claim via `jwt.io`.
 

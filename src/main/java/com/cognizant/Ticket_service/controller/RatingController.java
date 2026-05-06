@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -35,8 +36,10 @@ public class RatingController {
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<Ticket> submitRating(@RequestBody TicketRatingRequestDTO request) {
-        Ticket ticket = ticketService.rateTicket(request.getTicketId(), request.getRating(), request.getFeedback());
+    public ResponseEntity<Ticket> submitRating(
+            @RequestBody TicketRatingRequestDTO request,
+            @RequestHeader("X-User-Id") java.util.UUID ratedBy) {
+        Ticket ticket = ticketService.rateTicket(request.getTicketId(), request.getRating(), request.getFeedback(), ratedBy);
         return ResponseEntity.status(HttpStatus.CREATED).body(ticket);
     }
 }

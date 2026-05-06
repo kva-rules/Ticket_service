@@ -1,6 +1,7 @@
 package com.cognizant.Ticket_service.controller;
 
 import com.cognizant.Ticket_service.dto.request.TicketAssignRequestDTO;
+import com.cognizant.Ticket_service.dto.request.TicketRatingRequestDTO;
 import com.cognizant.Ticket_service.dto.request.TicketRequestDTO;
 import com.cognizant.Ticket_service.dto.request.TicketResolveRequestDTO;
 import com.cognizant.Ticket_service.dto.request.TicketStatusRequestDTO;
@@ -13,11 +14,15 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -63,38 +68,53 @@ public class TicketController {
     }
 
     @GetMapping
-    @Operation(summary = "List all tickets", description = "Returns every ticket in the system")
+    @Operation(summary = "List all tickets", description = "Returns every ticket in the system (paginated)")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tickets returned"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden"),
-            @ApiResponse(responseCode = "404", description = "No tickets found"),
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<List<Ticket>> getAllTickets() {
-        List<Ticket> tickets = ticketService.getAllTickets();
+    public ResponseEntity<Page<Ticket>> getAllTickets(
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<Ticket> tickets = ticketService.getAllTickets(pageable);
+        return ResponseEntity.ok(tickets);
+    }
+
+    @GetMapping("/my")
+    @Operation(summary = "List my tickets", description = "Returns tickets created by the authenticated user (paginated)")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Tickets returned"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @SecurityRequirement(name = "bearerAuth")
+    public ResponseEntity<Page<Ticket>> getMyTickets(
+            @PageableDefault(size = 20) Pageable pageable) {
+        String currentUser = currentPrincipalName();
+        Page<Ticket> tickets = ticketService.getMyTickets(currentUser, pageable);
         return ResponseEntity.ok(tickets);
     }
 
     @GetMapping("/search")
-    @Operation(summary = "Search tickets", description = "Filter tickets by title, category, difficulty, status, assignee")
+    @Operation(summary = "Search tickets", description = "Filter tickets by title, category, difficulty, status, assignee (paginated)")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Search results returned"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden"),
-            @ApiResponse(responseCode = "404", description = "No matches"),
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @SecurityRequirement(name = "bearerAuth")
-    public ResponseEntity<List<Ticket>> searchTickets(
+    public ResponseEntity<Page<Ticket>> searchTickets(
             @Parameter(description = "Partial ticket title") @RequestParam(required = false) String title,
             @Parameter(description = "Category id") @RequestParam(required = false) Long category,
             @Parameter(description = "Difficulty level") @RequestParam(required = false) String difficultyLevel,
             @Parameter(description = "Ticket status") @RequestParam(required = false) String status,
-            @Parameter(description = "Assignee user id") @RequestParam(required = false) String assignedTo
+            @Parameter(description = "Assignee user id") @RequestParam(required = false) String assignedTo,
+            @PageableDefault(size = 20) Pageable pageable
     ) {
-        List<Ticket> tickets = ticketService.searchTickets(title, category, difficultyLevel, status, assignedTo);
+        Page<Ticket> tickets = ticketService.searchTickets(title, category, difficultyLevel, status, assignedTo, pageable);
         return ResponseEntity.ok(tickets);
     }
 
@@ -104,7 +124,6 @@ public class TicketController {
             @ApiResponse(responseCode = "200", description = "Statistics returned"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden"),
-            @ApiResponse(responseCode = "404", description = "No data"),
             @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     @SecurityRequirement(name = "bearerAuth")
@@ -182,6 +201,24 @@ public class TicketController {
         return ResponseEntity.ok(resolved);
     }
 
+    @PostMapping("/{id}/rate")
+    @Operation(summary = "Rate a resolved ticket", description = "Submits a CSAT rating (1-5) and optional feedback for a resolved ticket")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Rating recorded"),
+            @ApiResponse(responseCode = "400", description = "Invalid rating"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "404", description = "Ticket not found"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    @SecurityRequirement(name = "bearerAuth")
+    public ResponseEntity<Ticket> rateTicket(
+            @Parameter(description = "UUID of the ticket") @PathVariable("id") UUID ticketId,
+            @RequestBody TicketRatingRequestDTO request,
+            @RequestHeader("X-User-Id") UUID ratedBy) {
+        Ticket rated = ticketService.rateTicket(ticketId, request.getRating(), request.getFeedback(), ratedBy);
+        return ResponseEntity.ok(rated);
+    }
+
     @DeleteMapping("/{id}")
     @Operation(summary = "Delete a ticket", description = "Permanently removes the ticket for the given id")
     @ApiResponses({
@@ -196,5 +233,10 @@ public class TicketController {
             @Parameter(description = "UUID of the ticket") @PathVariable("id") UUID ticketId) {
         ticketService.deleteTicket(ticketId);
         return ResponseEntity.noContent().build();
+    }
+
+    private String currentPrincipalName() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null ? auth.getName() : null;
     }
 }
