@@ -111,8 +111,22 @@ docker run --rm -p 8083:8083 ticket-service:latest
 ```
 
 ## Kubernetes
-- Manifest: `k8s/ticket-service.yaml`
-- Service: `ticket-service`
+- Manifest: `k8s/ticket-service.yaml` (part of `k8s/services.yaml`)
+- Namespace: `ticketing-system`
+- Service DNS (intra-cluster): `ticket-service:8083`
+- Access via ingress: `http://ticketing.local/api/tickets/**`
+
+```bash
+# View logs
+./services.sh k8s-logs ticket-service
+# or: kubectl logs -n ticketing-system deployment/ticket-service -f
+
+# Restart the pod
+kubectl rollout restart deployment/ticket-service -n ticketing-system
+```
+
+> **Fresh cluster:** The `categories` table in `ticket_db` will be empty after a new cluster is created.
+> Run `./services.sh k8s-seed` to insert the 5 seed categories (Network, Software, Hardware, Security, Other).
 
 ---
 
